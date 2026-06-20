@@ -41,12 +41,112 @@
 - **Python 3.10+**
 - **Flock.io SDK** - Federated learning orchestration
 - **PyTorch** - Autoencoder model
-- **Streamlit** - Interactive dashboard
+- **Flask** - REST API server for the web dashboard
+- **Streamlit** - Alternative interactive dashboard
 - **Pandas/NumPy** - Data manipulation
+- **Leaflet.js / Google Maps** - Interactive map
+
+## Running the Website Locally
+
+The main interface is a Flask web app with a Google Maps/Leaflet dashboard. Follow these steps to run it on your machine.
+
+### Prerequisites
+
+- Python 3.10+
+- pip
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/FranciscoPereira/flock-health-cluster.git
+cd flock-health-cluster
+```
+
+### 2. Install the Flock.io SDK
+
+```bash
+pip install git+https://github.com/FLock-io/v1-sdk.git
+```
+
+### 3. Install project dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4. (Optional) Add a Google Maps API key
+
+The dashboard works out of the box using a free Leaflet/OpenStreetMap dark tile. If you have a Google Maps API key and want to use Google Maps instead:
+
+```bash
+export GOOGLE_MAPS_API_KEY=your_key_here
+```
+
+Get a free key at [console.cloud.google.com](https://console.cloud.google.com) — enable the **Maps JavaScript API**.
+
+### 5. Start the web server
+
+```bash
+python3 api.py
+```
+
+You should see:
+
+```
+Starting NHS Federated Disease Detection API…
+Open http://localhost:5050 in your browser
+```
+
+### 6. Open the dashboard
+
+Go to **http://localhost:5050** in your browser.
+
+### 7. Run the federated pipeline
+
+Click the **▶ RUN FEDERATED PIPELINE** button. The dashboard will:
+
+1. Generate synthetic respiratory ED visit data for 3 NHS nodes
+2. Train a federated autoencoder across all 3 nodes (data stays local)
+3. Run anomaly detection on each node independently
+4. Update the map, charts, and alert log in real time
+
+Expected result: **Node B – England** turns red with outbreak alerts on days 45–52. Nodes A and C remain green.
+
+### Alternative: Streamlit dashboard
+
+If you prefer Streamlit over the Flask web app:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+Then click **Run Full Pipeline** in the sidebar.
+
+### Alternative: Command-line only
+
+```bash
+./run_demo.sh
+```
+
+---
 
 ## Files
 
-1. **data_gen.py** - Generate 3 synthetic CSVs (60 days respiratory ED visits)
+1. **api.py** - Flask REST API server (serves the web dashboard)
+   - `GET /` — main dashboard page
+   - `GET /api/status` — node statuses + anomaly time-series (JSON)
+   - `POST /api/run-pipeline` — trigger federated train + detect
+   - `GET /api/alerts` — full alert log (JSON)
+
+2. **templates/index.html** - Google Maps / Leaflet dashboard
+   - Dark HUD layout with live-updating map, charts, and alert log
+
+3. **static/js/app.js** - Frontend logic
+   - Map rendering, Chart.js anomaly graphs, 4-second API polling
+
+4. **static/css/styles.css** - HUD dark theme
+
+5. **data_gen.py** - Generate 3 synthetic CSVs (60 days respiratory ED visits)
    - Node A: Normal pattern
    - Node B: Normal + outbreak spike (days 45-52, 2x visits)
    - Node C: Normal pattern
@@ -75,33 +175,16 @@
 
 6. **requirements.txt** - Dependencies
 
-## Quick Start
-
-### 1. Install Dependencies
+## Quick Start (TL;DR)
 
 ```bash
+git clone https://github.com/FranciscoPereira/flock-health-cluster.git
+cd flock-health-cluster
+pip install git+https://github.com/FLock-io/v1-sdk.git
 pip install -r requirements.txt
+python3 api.py
+# → open http://localhost:5050
 ```
-
-### 2. Run End-to-End Demo
-
-```bash
-# Generate data, train, detect, show results
-python federated_train.py && python detect.py
-```
-
-### 3. Launch Streamlit Dashboard
-
-```bash
-streamlit run streamlit_app.py
-```
-
-Click "Run Full Pipeline" to see:
-- Synthetic data generation
-- Federated training across 3 nodes
-- Anomaly detection results
-- Regional status map
-- Alert log
 
 ## Key Properties
 
