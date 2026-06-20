@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NHS Federated Disease Cluster Detection</title>
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <!-- Leaflet (fallback map — used when no Google Maps API key is present) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Chart.js for anomaly time-series -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ============================================================ TOP HUD ============================================================ -->
+<header class="hud-header">
+  <div class="hud-logo">
+    <span class="pulse-dot" id="pulse-dot"></span>
+    NHS FEDERATED DISEASE CLUSTER DETECTION
+  </div>
+  <div class="hud-meta">
+    <span class="hud-tag">SYSTEM: <span id="sys-status">IDLE</span></span>
+    <span class="hud-tag">MODEL: <span id="model-version">FL-AUTOENCODER v1</span></span>
+    <span class="hud-tag">NODES: <span id="nodes-active">3/3</span></span>
+    <span class="hud-tag">DATA SHARING: <span class="red-text">DISABLED ✗</span></span>
+    <span class="hud-tag">LAST RUN: <span id="last-run">—</span></span>
+  </div>
+</header>
+
+<!-- ============================================================ MAIN LAYOUT ============================================================ -->
+<div class="layout">
+
+  <!-- LEFT PANEL: Controls + Alerts -->
+  <aside class="left-panel">
+
+    <section class="panel-block">
+      <h2 class="panel-title">PIPELINE CONTROL</h2>
+      <button class="run-btn" id="run-btn" onclick="runPipeline()">
+        ▶  RUN FEDERATED PIPELINE
+      </button>
+      <div class="progress-wrap" id="progress-wrap" style="display:none">
+        <div class="progress-bar" id="progress-bar"></div>
+        <span class="progress-label" id="progress-label">Initialising…</span>
+      </div>
+      <div class="step-list" id="step-list"></div>
+    </section>
+
+    <section class="panel-block">
+      <h2 class="panel-title">NODE STATUS</h2>
+      <div id="node-status-list">
+        <div class="node-row" id="status-node_a">
+          <span class="status-dot green"></span><span>Node A – Wales</span><span class="badge">—</span>
+        </div>
+        <div class="node-row" id="status-node_b">
+          <span class="status-dot green"></span><span>Node B – England</span><span class="badge">—</span>
+        </div>
+        <div class="node-row" id="status-node_c">
+          <span class="status-dot green"></span><span>Node C – Scotland</span><span class="badge">—</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel-block alert-panel">
+      <h2 class="panel-title">🚨 ALERT LOG <span id="alert-count" class="count-badge">0</span></h2>
+      <div id="alert-log" class="alert-log">
+        <p class="dim">No alerts yet — run the pipeline.</p>
+      </div>
+    </section>
+
+    <section class="panel-block">
+      <h2 class="panel-title">PRIVACY AUDIT</h2>
+      <ul class="audit-list">
+        <li><span class="ok">✓</span> Raw patient data: <strong>LOCAL ONLY</strong></li>
+        <li><span class="ok">✓</span> Transport: <strong>Weights only (FedAvg)</strong></li>
+        <li><span class="ok">✓</span> Aggregation: <strong>In-memory, no logs</strong></li>
+        <li><span class="ok">✓</span> Compliance: <strong>GDPR / HIPAA</strong></li>
+      </ul>
+    </section>
+
+  </aside>
+
+  <!-- CENTER: Google Map -->
+  <main class="map-wrap">
+    <div id="map"></div>
+
+    <!-- Floating legend -->
+    <div class="map-legend">
+      <div class="legend-item"><span class="legend-dot green"></span>Normal</div>
+      <div class="legend-item"><span class="legend-dot red"></span>Outbreak Alert</div>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL: Charts -->
+  <aside class="right-panel">
+    <h2 class="panel-title" style="padding:16px 16px 0">ANOMALY SCORES</h2>
+
+    <div class="chart-block">
+      <div class="chart-header" id="chart-title-node_a">Node A – Wales</div>
+      <div class="chart-sub" id="chart-sub-node_a">Awaiting pipeline…</div>
+      <canvas id="chart-node_a" height="100"></canvas>
+    </div>
+
+    <div class="chart-block">
+      <div class="chart-header" id="chart-title-node_b">Node B – England</div>
+      <div class="chart-sub" id="chart-sub-node_b">Awaiting pipeline…</div>
+      <canvas id="chart-node_b" height="100"></canvas>
+    </div>
+
+    <div class="chart-block">
+      <div class="chart-header" id="chart-title-node_c">Node C – Scotland</div>
+      <div class="chart-sub" id="chart-sub-node_c">Awaiting pipeline…</div>
+      <canvas id="chart-node_c" height="100"></canvas>
+    </div>
+
+    <div class="panel-block" style="margin-top:auto">
+      <h2 class="panel-title">FEDERATED MODEL</h2>
+      <table class="info-table">
+        <tr><td>Architecture</td><td>Autoencoder</td></tr>
+        <tr><td>Input</td><td>7-day windows</td></tr>
+        <tr><td>Latent dim</td><td>3</td></tr>
+        <tr><td>Aggregation</td><td>FedAvg</td></tr>
+        <tr><td>Threshold</td><td>2.5σ</td></tr>
+        <tr><td>Rounds</td><td>2</td></tr>
+      </table>
+    </div>
+
+  </aside>
+
+</div>
+
+<!-- ============================================================ SCRIPTS ============================================================ -->
+<script src="/static/js/app.js"></script>
+
+{% if google_maps_api_key %}
+<!-- Google Maps — loaded when API key is present -->
+<script>window.GOOGLE_MAPS_KEY = "{{ google_maps_api_key }}";</script>
+<script
+  async defer
+  src="https://maps.googleapis.com/maps/api/js?key={{ google_maps_api_key }}&callback=initMap&libraries=visualization">
+</script>
+{% else %}
+<!-- No API key — fall back to Leaflet -->
+<script>window.GOOGLE_MAPS_KEY = "";</script>
+<script>window.addEventListener('DOMContentLoaded', initLeafletMap);</script>
+{% endif %}
+
+</body>
+</html>
