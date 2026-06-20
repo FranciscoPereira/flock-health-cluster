@@ -186,6 +186,125 @@ python3 api.py
 # → open http://localhost:5050
 ```
 
+## How Flock.io is Used
+
+### The Flock.io SDK contract
+
+The Flock.io v1 SDK defines three abstract methods that every federated model must implement:
+
+| Method | Input | Output | Purpose |
+|--------|-------|--------|---------|
+| `train(parameters)` | Global model weights as `bytes` | Updated local weights as `bytes` | Node trains on its own data |
+| `evaluate(parameters)` | Model weights as `bytes` | Accuracy as `float` | Node scores the current global model |
+| `aggregate(parameters_list)` | List of local weight `bytes` | Aggregated global weights as `bytes` | Coordinator averages all node updates |
+
+In a production Flock.io deployment, `FlockSDK` wraps your model in a Flask microservice. The Flock platform then orchestrates the round by posting to each node's `/call` endpoint:
+
+```
+POST /call  {"method": "train",     "parameters": "<base64 weights>"}
+POST /call  {"method": "evaluate",  "parameters": "<base64 weights>"}
+POST /call  {"method": "aggregate", "parameters_list": ["<b64>", "<b64>", "<b64>"]}
+```
+
+### How this project maps to the SDK
+
+This MVP implements the same three-method contract directly in Python, simulating the network orchestration layer in-process so the demo runs on a single machine without requiring Flock.io credentials.
+
+**`NodeLocalTrainer`** → implements `train()`
+
+```python
+# federated_train.py
+def train_locally(self, model, epochs=3) -> RespiratoryAutoencoder:
+    # Trains on LOCAL CSV only — mirrors FlockModel.train(parameters) -> bytes
+    for window in self.data_tensor:
+        loss = criterion(model(window), window)
+        loss.backward()
+        optimizer.step()
+    return model  # weights serialised to bytes by get_model_weights()
+```
+
+**`FederatedAggregator`** → implements `aggregate()`
+
+```python
+# federated_train.py
+def aggregate_weights(weights_list: list[bytes]) -> bytes:
+    # FedAvg: average every parameter tensor across all nodes
+    # Mirrors FlockModel.aggregate(parameters_list) -> bytes
+    for key in avg_state.keys():
+        avg_state[key] = sum(m[key] for m in models) / len(models)
+    return serialize_model(global_model)
+```
+
+**`AnomalyDetector`** → implements `evaluate()`
+
+```python
+# detect.py
+def detect_anomalies(self) -> dict:
+    # Loads global model, scores each window, flags error > 2.5σ
+    # Mirrors FlockModel.evaluate(parameters) -> float (here: anomaly score)
+    errors = [mse(model(window), window) for window in all_windows]
+```
+
+### Weight serialisation (matches Flock.io wire format)
+
+Flock.io transmits model weights as base64-encoded bytes over HTTP. This project uses the same bytes representation end-to-end:
+
+```python
+# autoencoder.py
+def serialize_model(model) -> bytes:
+    buffer = io.BytesIO()
+    torch.save(model.state_dict(), buffer)   # identical to Flock.io's encoding
+    return buffer.getvalue()
+
+def deserialize_model(data: bytes) -> RespiratoryAutoencoder:
+    model.load_state_dict(torch.load(io.BytesIO(data)))
+    return model
+```
+
+### Federated round lifecycle
+
+Each federated round follows the exact sequence the Flock.io platform would orchestrate remotely:
+
+```
+Round N
+  ├─ Broadcast global weights to all nodes
+  ├─ Node A: train(global_weights) → local_weights_A   [local data only]
+  ├─ Node B: train(global_weights) → local_weights_B   [local data only]
+  ├─ Node C: train(global_weights) → local_weights_C   [local data only]
+  └─ Aggregator: aggregate([A, B, C]) → new global_weights
+```
+
+### Upgrading to a real Flock.io deployment
+
+To deploy each NHS node as a real Flock.io participant, wrap the model in `FlockSDK`:
+
+```python
+from flock_sdk import FlockSDK, FlockModel
+
+class NHSRespiratoryModel(FlockModel):
+    def init_dataset(self, dataset_path):
+        # load node's local CSV
+        ...
+    def train(self, parameters: bytes) -> bytes:
+        # same logic as NodeLocalTrainer.train_locally()
+        ...
+    def evaluate(self, parameters: bytes) -> float:
+        # same logic as AnomalyDetector.detect_anomalies()
+        ...
+    def aggregate(self, parameters_list: list[bytes]) -> bytes:
+        # same logic as FederatedAggregator.aggregate_weights()
+        ...
+
+if __name__ == "__main__":
+    model = NHSRespiratoryModel()
+    sdk = FlockSDK(model)
+    sdk.run()   # exposes POST /call on 0.0.0.0:5000
+```
+
+Each node then registers its `/call` URL with the Flock.io platform, and the platform drives all rounds automatically — no code changes needed beyond the `FlockModel` wrapper.
+
+---
+
 ## Key Properties
 
 ### 🔐 Privacy-Preserving
